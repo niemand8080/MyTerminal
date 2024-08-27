@@ -8,48 +8,18 @@
 import Foundation
 import SQLite3
 
-var currentPath = "~"
-var currentDirectory = ""
+let response = readLine()
 
-
-// adds an children to directory
-func addCildren() {
-
-}
-
-// delete item by id or name
-func deleteChildren() {
-
-}
-
-// restores the last deleted Element
-func restoreLastElement() {
-
-}
-
-// goes to the Directory
-func openDir() {
-
-}
-
-// basicly cd ..
-func goBack() {
-
-}
-
-// prints a list of all items in the current directory
-func listCurrentDir() {
-
-}
-
-// gets an Item by the id of it...
-func getItem() {
-
+enum Types {
+    case cmd, dir
 }
 
 class DatabaseManager {
-    private var db: OpaquePointer? // It's a type that is used for C API requests… so swift doesn't know the exact type… or something like this…
+    private var db: OpaquePointer?  // It's a type that is used for C API requests… so swift doesn't know the exact type… or something like this…
     private let dbPath: String
+    var currentPath = "~"
+    var currentDirectory = "~"
+    var currentParentId = 1
 
     init(dbPath: String) {
         self.dbPath = dbPath
@@ -64,22 +34,23 @@ class DatabaseManager {
     }
 
     func close() {
+        print("Closed MyTerminal!")
         sqlite3_close(db)
     }
 
     func executeSelectQuery(_ query: String) -> [[String: Any]]? {
         var statement: OpaquePointer?
         var results: [[String: Any]] = []
-        
+
         guard sqlite3_prepare_v2(db, query, -1, &statement, nil) == SQLITE_OK else {
             print("Error preparing query: \(String(cString: sqlite3_errmsg(db)))")
             return nil
         }
-        
+
         defer {
             sqlite3_finalize(statement)
         }
-        
+
         while sqlite3_step(statement) == SQLITE_ROW {
             var row: [String: Any] = [:]
             for i in 0..<sqlite3_column_count(statement) {
@@ -90,7 +61,7 @@ class DatabaseManager {
             }
             results.append(row)
         }
-        
+
         return results
     }
 
@@ -102,20 +73,20 @@ class DatabaseManager {
             return sqlite3_column_double(statement, index)
         case SQLITE_TEXT:
             return String(cString: sqlite3_column_text(statement, index))
-        case SQLITE_BLOB: 
+        case SQLITE_BLOB:
             let dataSize = sqlite3_column_bytes(statement, index)
             let dataPointer = sqlite3_column_blob(statement, index)
             return Data(bytes: dataPointer!, count: Int(dataSize))
         case SQLITE_NULL:
-            return nil
+            return "NULL"
         default:
-            return nil
+            return "NULL"
         }
     }
-    
+
     func executeQuery(_ query: String) {
         var statement: OpaquePointer?
-        
+
         if sqlite3_prepare_v2(db, query, -1, &statement, nil) == SQLITE_OK {
             if sqlite3_step(statement) == SQLITE_DONE {
                 print("Query successfully executed.")
@@ -128,19 +99,98 @@ class DatabaseManager {
 
         sqlite3_finalize(statement)
     }
+    
+    func execute(command: String) {
+        switch command {
+        case "!close":
+            close()
+        case var cmd where cmd.starts(with: "!add "):
+            cmd.removeFirst(5)
+            // let execution1 = cmd
+            let args = cmd.components(separatedBy: " ")
+            let type: Types = args[0] == "dir" ? .dir : .cmd
+            let name = args[1]
+            let execution = type == .dir ? "" : args[2]
+            addChildren(name: name, type: type, execution: execution)
+        default:
+            print("This command is not defined.")
+            runMyTerminal()
+        }
+    }
+
+    // adds an children to directory
+    func addChildren(name: String, type: Types, execution: String) {
+        if type == .cmd {
+            executeQuery(
+                "INSERT INTO hierachy (name, parent, favorite, type, execution) VALUES (\(name),\(currentParentId),0,command,\(execution))"
+            )
+        } else {
+            executeQuery(
+                "INSERT INTO hierachy (name, parent, favorite, type) VALUES (\(name),\(currentParentId),0,directory)"
+            )
+        }
+    }
+
+    // delete item by id or name
+    func deleteChildren() {
+
+    }
+
+    // restores the last deleted Element
+    func restoreLastElement() {
+
+    }
+
+    // goes to the Directory
+    func openDir() {
+
+    }
+
+    // basicly cd ..
+    func goBack() {
+
+    }
+
+    // prints a list of all items in the current directory
+    func listCurrentDir() {
+
+    }
+
+    // gets an Item by the id of it...
+    func getItem() {
+
+    }
 }
 
 let dbPath =
     "/Users/ben/Library/Mobile Documents/com~apple~CloudDocs/programming/Xcode/Projects/Comandline/MyTerminal/MyTerminal/zaphod.sqlite"
 let dbManager = DatabaseManager(dbPath: dbPath)
 
-if dbManager.open() {
-    if let results = dbManager.executeSelectQuery("SELECT * FROM hierachy") {
-        for row in results {
-            print(row)  // Each row is a dictionary with column names as keys
+func runMyTerminal() {
+    if dbManager.open() {
+        let command = readLine() ?? "!"
+        
+        if command != "" {
+            dbManager.execute(command: command)
+        } else {
+            runMyTerminal()
         }
+        
+        //    if let results = dbManager.executeSelectQuery("SELECT \(select) FROM hierachy") {
+        //        for row in results {
+        //            print(row)  // Each row is a dictionary with column names as keys
+        //        }
+        //    }
+    } else {
+        print("Failed to open database.")
     }
-    dbManager.close()
-} else {
-    print("Failed to open database.")
 }
+
+print("""
+
+Welcome to MyTerminal
+if you need a guide type !guide
+
+""")
+
+runMyTerminal()
