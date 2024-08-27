@@ -14,8 +14,54 @@ enum Types {
     case cmd, dir
 }
 
+extension String {
+    func cut(start: String, end: String) -> String {
+        var startComponents = [Character]()
+        var endComponents = [Character]()
+        
+        for char in start {
+            startComponents.append(char)
+        }
+                
+        for char in end {
+            endComponents.append(char)
+        }
+        
+        var result = ""
+        var current = ""
+                
+        for char in self {
+            if current.count < startComponents.count && !result.starts(with: start) {
+                if char == startComponents[current.count] {
+                    current.append(char)
+                } else {
+                    current = ""
+                }
+            } else if current == start {
+                result = current
+                current = ""
+            }
+            
+            if result.starts(with: start) {
+                if current != end {
+                    if char == endComponents[current.count] {
+                        current.append(char)
+                    } else {
+                        current = ""
+                    }
+                    result.append(char)
+                } else {
+                    break
+                }
+            }
+        }
+        
+        return result.replacing(start, with: "").replacing(end, with: "")
+    }
+}
+
 class DatabaseManager {
-    private var db: OpaquePointer?  // It's a type that is used for C API requests… so swift doesn't know the exact type… or something like this…
+    private var db: OpaquePointer?  // It's a type that is used for C API requests… so swift doesn't know the exact type… or something like that…
     private let dbPath: String
     var currentPath = "~"
     var currentDirectory = "~"
@@ -106,11 +152,10 @@ class DatabaseManager {
             close()
         case var cmd where cmd.starts(with: "!add "):
             cmd.removeFirst(5)
-            // let execution1 = cmd
             let args = cmd.components(separatedBy: " ")
             let type: Types = args[0] == "dir" ? .dir : .cmd
             let name = args[1]
-            let execution = type == .dir ? "" : args[2]
+            let execution = type == .dir ? "" : cmd.cut(start: "\"", end: "\"")
             addChildren(name: name, type: type, execution: execution)
         default:
             print("This command is not defined.")
