@@ -15,21 +15,21 @@ enum Types {
 }
 
 extension String {
-    func cut(start: String, end: String) -> String {
+    func cut(start: String, end: String, ceepStartEnd: Bool = false) -> String {
         var startComponents = [Character]()
         var endComponents = [Character]()
-        
+
         for char in start {
             startComponents.append(char)
         }
-                
+
         for char in end {
             endComponents.append(char)
         }
-        
+
         var result = ""
         var current = ""
-                
+
         for char in self {
             if current.count < startComponents.count && !result.starts(with: start) {
                 if char == startComponents[current.count] {
@@ -41,7 +41,7 @@ extension String {
                 result = current
                 current = ""
             }
-            
+
             if result.starts(with: start) {
                 if current != end {
                     if char == endComponents[current.count] {
@@ -55,17 +55,45 @@ extension String {
                 }
             }
         }
-        
-        return result.replacing(start, with: "").replacing(end, with: "")
+
+        if ceepStartEnd {
+            return result
+        } else {
+            return result.replacing(start, with: "").replacing(end, with: "")
+        }
     }
 }
 
 class DatabaseManager {
     private var db: OpaquePointer?  // It's a type that is used for C API requests… so swift doesn't know the exact type… or something like that…
     private let dbPath: String
-    var currentPath = "~"
-    var currentDirectory = "~"
-    var currentParentId = 1
+    var currentDirectory = "dir1"
+    var currentParentUid: Int {
+        let uid: String = "\(executeSelectQuery("SELECT parent FROM hierarchy WHERE name = '\(currentDirectory)'")?[0]["parent"] ?? "0")"
+        return Int(uid) ?? 0
+    }
+    var currentUid: Int {
+        let uid: String = "\(executeSelectQuery("SELECT uid FROM hierarchy WHERE name = '\(currentDirectory)'")?[0]["uid"] ?? "0")"
+        return Int(uid) ?? 0
+    }
+    var currentPath: String {
+        var path = [currentDirectory]
+        var currentDirName = currentDirectory
+
+        while currentDirName != "~" {
+            let query =
+                "SELECT parent.name AS parentName FROM hierarchy current LEFT JOIN hierarchy parent ON parent.uid = current.parent WHERE current.name = '\(currentDirName)'"
+            
+            if let response = executeSelectQuery(query) {
+                let name = response[0]["parentName"] as? String ?? ""
+
+                path.insert(name, at: 0)
+                currentDirName = name
+            }
+        }
+
+        return path.joined(separator: "/")
+    }
 
     init(dbPath: String) {
         self.dbPath = dbPath
@@ -80,8 +108,8 @@ class DatabaseManager {
     }
 
     func close() {
-        print("Closed MyTerminal!")
         sqlite3_close(db)
+        print("Closed MyTerminal!")
     }
 
     func executeSelectQuery(_ query: String) -> [[String: Any]]? {
@@ -144,8 +172,9 @@ class DatabaseManager {
         }
 
         sqlite3_finalize(statement)
+        runMyTerminal()
     }
-    
+
     func execute(command: String) {
         switch command {
         case "!close":
@@ -157,6 +186,8 @@ class DatabaseManager {
             let name = args[1]
             let execution = type == .dir ? "" : cmd.cut(start: "\"", end: "\"")
             addChildren(name: name, type: type, execution: execution)
+        case "!path":
+            print("path: \(currentPath)")
         default:
             print("This command is not defined.")
             runMyTerminal()
@@ -167,13 +198,18 @@ class DatabaseManager {
     func addChildren(name: String, type: Types, execution: String) {
         if type == .cmd {
             executeQuery(
-                "INSERT INTO hierachy (name, parent, favorite, type, execution) VALUES (\(name),\(currentParentId),0,command,\(execution))"
+                "INSERT INTO hierarchy (name, parent, favorite, type, execution) VALUES ('\(name)',\(currentParentUid),0,'command','\(execution)')"
             )
         } else {
             executeQuery(
-                "INSERT INTO hierachy (name, parent, favorite, type) VALUES (\(name),\(currentParentId),0,directory)"
+                "INSERT INTO hierarchy (name, parent, favorite, type) VALUES ('\(name)',\(currentParentUid),0,'directory')"
             )
         }
+    }
+
+    // cd
+    func openDir(_ dir: Int) {
+
     }
 
     // delete item by id or name
@@ -183,11 +219,6 @@ class DatabaseManager {
 
     // restores the last deleted Element
     func restoreLastElement() {
-
-    }
-
-    // goes to the Directory
-    func openDir() {
 
     }
 
@@ -214,28 +245,23 @@ let dbManager = DatabaseManager(dbPath: dbPath)
 func runMyTerminal() {
     if dbManager.open() {
         let command = readLine() ?? "!"
-        
+
         if command != "" {
             dbManager.execute(command: command)
         } else {
             runMyTerminal()
         }
-        
-        //    if let results = dbManager.executeSelectQuery("SELECT \(select) FROM hierachy") {
-        //        for row in results {
-        //            print(row)  // Each row is a dictionary with column names as keys
-        //        }
-        //    }
     } else {
         print("Failed to open database.")
     }
 }
 
-print("""
+print(
+    """
 
-Welcome to MyTerminal
-if you need a guide type !guide
+    Welcome to MyTerminal
+    if you need a guide type !guide
 
-""")
+    """)
 
 runMyTerminal()
