@@ -15,6 +15,18 @@ enum Types {
 }
 
 extension String {
+    func replaceFirstExpression(
+        of pattern: String,
+        with replacement: Any
+    ) -> String {
+        let replace: String = "\(replacement)"
+        if let range = self.range(of: pattern) {
+            return self.replacingCharacters(in: range, with: replace)
+        } else {
+            return self
+        }
+    }
+
     func cut(start: String, end: String, ceepStartEnd: Bool = false) -> String {
         var startComponents = [Character]()
         var endComponents = [Character]()
@@ -64,16 +76,42 @@ extension String {
     }
 }
 
+extension Collection {
+    func isNotEmpty() -> Bool { !self.isEmpty }
+}
+
+class HierarchyRow {
+    let name: String
+    let deleted: String
+    let parent: Int
+    let type: String
+    let favorite: Int
+    let execution: String
+    let uid: Int
+    
+    init(name: String, deleted: String, parent: Int, type: String, favorite: Int, execution: String, uid: Int) {
+        self.name = name
+        self.deleted = deleted
+        self.parent = parent
+        self.type = type
+        self.favorite = favorite
+        self.execution = execution
+        self.uid = uid
+    }
+}
+
 class DatabaseManager {
     private var db: OpaquePointer?  // It's a type that is used for C API requests… so swift doesn't know the exact type… or something like that…
     private let dbPath: String
-    var currentDirectory = "dir1"
+    var currentDirectory = "~"
     var currentParentUid: Int {
-        let uid: String = "\(executeSelectQuery("SELECT parent FROM hierarchy WHERE name = '\(currentDirectory)'")?[0]["parent"] ?? "0")"
+        let uid: String =
+            "\(executeSelectQuery("SELECT parent FROM hierarchy WHERE name = '\(currentDirectory)'")?[0]["parent"] ?? "0")"
         return Int(uid) ?? 0
     }
     var currentUid: Int {
-        let uid: String = "\(executeSelectQuery("SELECT uid FROM hierarchy WHERE name = '\(currentDirectory)'")?[0]["uid"] ?? "0")"
+        let uid: String =
+            "\(executeSelectQuery("SELECT uid FROM hierarchy WHERE name = '\(currentDirectory)'")?[0]["uid"] ?? "0")"
         return Int(uid) ?? 0
     }
     var currentPath: String {
@@ -83,7 +121,7 @@ class DatabaseManager {
         while currentDirName != "~" {
             let query =
                 "SELECT parent.name AS parentName FROM hierarchy current LEFT JOIN hierarchy parent ON parent.uid = current.parent WHERE current.name = '\(currentDirName)'"
-            
+
             if let response = executeSelectQuery(query) {
                 let name = response[0]["parentName"] as? String ?? ""
 
@@ -112,11 +150,18 @@ class DatabaseManager {
         print("Closed MyTerminal!")
     }
 
-    func executeSelectQuery(_ query: String) -> [[String: Any]]? {
+    func executeSelectQuery(_ query: String, args: [Any] = []) -> [[String: Any]]? {
+        var finalQuery = query
+        if args.isNotEmpty() {
+            for arg in args {
+                finalQuery = finalQuery.replaceFirstExpression(of: "?", with: "'\(arg)'")
+            }
+        }
+
         var statement: OpaquePointer?
         var results: [[String: Any]] = []
 
-        guard sqlite3_prepare_v2(db, query, -1, &statement, nil) == SQLITE_OK else {
+        guard sqlite3_prepare_v2(db, finalQuery, -1, &statement, nil) == SQLITE_OK else {
             print("Error preparing query: \(String(cString: sqlite3_errmsg(db)))")
             return nil
         }
@@ -134,6 +179,51 @@ class DatabaseManager {
                 }
             }
             results.append(row)
+        }
+
+        return results
+    }
+
+    func executeSelectHierarchy(query: String, args: [Any] = []) -> [HierarchyRow]? {
+        var finalQuery = query
+        if args.isNotEmpty() {
+            for arg in args {
+                finalQuery = finalQuery.replaceFirstExpression(of: "?", with: "'\(arg)'")
+            }
+        }
+
+        var statement: OpaquePointer?
+        var results: [HierarchyRow] = []
+
+        guard sqlite3_prepare_v2(db, finalQuery, -1, &statement, nil) == SQLITE_OK else {
+            print("Error preparing query: \(String(cString: sqlite3_errmsg(db)))")
+            return nil
+        }
+
+        defer {
+            sqlite3_finalize(statement)
+        }
+
+        while sqlite3_step(statement) == SQLITE_ROW {
+            var row: [String: Any] = ["name": "", "deleted": "", "parent": 0, "type": "", "favorite": 0, "execution": "", "uid": 0]
+            for i in 0..<sqlite3_column_count(statement) {
+                let columnName = String(cString: sqlite3_column_name(statement, i))
+                if let value = getColumnValue(statement, index: i) {
+                    row[columnName] = value
+                }
+            }
+            results
+                .append(
+                    HierarchyRow(
+                        name: "\(row["name"] ?? "NULL")",
+                        deleted: "\(row["name"] ?? "NULL")",
+                        parent: Int("\(row["name"] ?? "0")") ?? 0,
+                        type: "\(row["name"] ?? "NULL")",
+                        favorite: Int("\(row["name"] ?? "0")") ?? 0,
+                        execution: "\(row["name"] ?? "NULL")",
+                        uid: Int("\(row["name"] ?? "0")") ?? 0
+                    )
+                )
         }
 
         return results
@@ -188,22 +278,41 @@ class DatabaseManager {
             addChildren(name: name, type: type, execution: execution)
         case "!path":
             print("path: \(currentPath)")
+        case "!ls":
+            printDir()
         default:
             print("This command is not defined.")
             runMyTerminal()
         }
     }
 
-    // adds an children to directory
+    // adds an children to current directory
     func addChildren(name: String, type: Types, execution: String) {
         if type == .cmd {
             executeQuery(
-                "INSERT INTO hierarchy (name, parent, favorite, type, execution) VALUES ('\(name)',\(currentParentUid),0,'command','\(execution)')"
+                "INSERT INTO hierarchy (name, parent, favorite, type, execution) VALUES ('\(name)',\(currentUid),0,'command','\(execution)')"
             )
         } else {
             executeQuery(
-                "INSERT INTO hierarchy (name, parent, favorite, type) VALUES ('\(name)',\(currentParentUid),0,'directory')"
+                "INSERT INTO hierarchy (name, parent, favorite, type) VALUES ('\(name)',\(currentUid),0,'directory')"
             )
+        }
+    }
+
+    func printDir(called name: String = "") {
+        let dirUid: Int
+        if name != "" {
+            let uid: String =
+                "\(executeSelectQuery("SELECT uid FROM hierarchy WHERE name = ?", args: [name])?[0]["uid"] ?? "0")"
+            dirUid = Int(uid) ?? 0
+        } else {
+            dirUid = currentUid
+        }
+        
+        if let children = executeSelectQuery("SELECT * FROM hierarchy WHERE parent = ?", args: [dirUid]) {
+            for child in children {
+                
+            }
         }
     }
 
