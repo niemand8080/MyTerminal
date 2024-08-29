@@ -15,6 +15,32 @@ enum Types {
 }
 
 extension String {
+    //! NOT WORKING
+    mutating func replaceAll(chars: String, with: String) {
+        self = self.replacedAll(chars: chars, with: with)
+    }
+    
+    //! NOT WORKING
+    func replacedAll(chars: String, with: String) -> String {
+        var filterd = self
+        for char in chars {
+            var containsChar = filterd.contains(char)
+            while containsChar {
+                filterd.replaceFirstExpression(of: String(char), with: with)
+                containsChar = filterd.contains(char)
+            }
+        }
+        return self
+    }
+    
+    mutating func trim() {
+        self = self.trimed()
+    }
+    
+    func trimed() -> String {
+        self.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+    
     mutating func removedUntil(_ str: String) {
         self = self.removeUntil(str)
     }
@@ -41,7 +67,11 @@ extension String {
         return result
     }
     
-    func replaceFirstExpression(
+    mutating func replaceFirstExpression(of pattern: String, with replacement: String) {
+        self = self.replacedFirstExpression(of: pattern, with: replacement)
+    }
+    
+    func replacedFirstExpression(
         of pattern: String,
         with replacement: Any
     ) -> String {
@@ -166,7 +196,7 @@ class DatabaseManager {
         var finalQuery = query
         if args.isNotEmpty() {
             for arg in args {
-                finalQuery = finalQuery.replaceFirstExpression(of: "?", with: "'\(arg)'")
+                finalQuery = finalQuery.replacedFirstExpression(of: "?", with: "'\(arg)'")
             }
         }
 
@@ -200,7 +230,7 @@ class DatabaseManager {
         var finalQuery = query
         if args.isNotEmpty() {
             for arg in args {
-                finalQuery = finalQuery.replaceFirstExpression(of: "?", with: "'\(arg)'")
+                finalQuery = finalQuery.replacedFirstExpression(of: "?", with: "'\(arg)'")
             }
         }
 
@@ -260,12 +290,12 @@ class DatabaseManager {
         }
     }
 
-    func executeQuery(_ query: String) {
+    func executeQuery(_ query: String, succes message: String = "Query successfully executed.") {
         var statement: OpaquePointer?
 
         if sqlite3_prepare_v2(db, query, -1, &statement, nil) == SQLITE_OK {
             if sqlite3_step(statement) == SQLITE_DONE {
-                print("Query successfully executed.")
+                print(message)
             } else {
                 print("Error while executing query.")
             }
@@ -274,7 +304,6 @@ class DatabaseManager {
         }
 
         sqlite3_finalize(statement)
-        runMyTerminal()
     }
 
     func execute(command: String) {
@@ -282,56 +311,58 @@ class DatabaseManager {
         case "!close":
             close()
         case var cmd where cmd.starts(with: "!add"): // !add (to:[wished dir name];) [type] [name] "[execution]" (execution is only requierd if you create a cmd)
-            if cmd.count == 4 {
-                breakWith(message: "To add an element to the current or wished `Directory` run: \n!add (to:[wished dir name];) [dir|cmd] [name] \"[execution]\" (execution is only for commands).")
-                return
-            }
-            
-            cmd.removeFirst(5)
-            let cmdCopy = cmd
-            let targetDirUid: Int
-            
-            if let dirName = cmd.cut(start: "to:", end: ";") {
-                cmd.removeFirst(4 + dirName.count)
-                if let response = executeSelectHierarchy(
-                    query: "SELECT uid FROM hierarchy WHERE name = ?",
-                    args: [dirName]
-                ) {
-                    targetDirUid = response[0].uid
-                } else {
-                    breakWith(message: "Please enter a vailid `Target Directory Name`.")
+            do {
+                if cmd.count == 4 {
+                    breakWith(message: "To add an element to the current or wished `Directory` run: \n!add (to:[wished dir name];) [dir|cmd] [name] \"[execution]\" (execution is only for commands).")
                     return
                 }
-            } else {
-                targetDirUid = currentUid
+                
+                cmd.removeFirst(5)
+                let cmdCopy = cmd
+                let targetDirUid: Int
+                
+                if let dirName = cmd.cut(start: "to:", end: ";") {
+                    cmd.removeFirst(4 + dirName.count)
+                    if let response = executeSelectHierarchy(
+                        query: "SELECT uid FROM hierarchy WHERE name = ?",
+                        args: [dirName]
+                    ) {
+                        targetDirUid = response[0].uid
+                    } else {
+                        breakWith(message: "Please enter a vailid `Target Directory Name`.")
+                        return
+                    }
+                } else {
+                    targetDirUid = currentUid
+                }
+                
+                let args = cmd.trimed().components(separatedBy: " ")
+                let type: Types
+                let name: String
+                let execution: String
+                
+                if args.count < 2 {
+                    breakWith(message: "Some arguments are missing, please try again.")
+                    return
+                }
+                
+                type = args[0] == "dir" ? .dir : args[0] == "cmd" ? .cmd : .undefined
+                name = args[1]
+                execution = type == .dir ? "" : cmdCopy.cut(start: "\"", end: "\"") ?? ""
+                
+                if type == .undefined {
+                    breakWith(message: "Please enter a vailid type: `\(args[0])`")
+                    return
+                }
+                
+                if type == .cmd && execution == "" {
+                    breakWith(message: "Please enter a vailid execution.")
+                    return
+                }
+                
+                addChildren(to: targetDirUid, name: name, type: type, execution: execution)
+                runMyTerminal()
             }
-
-            cmd.removedUntil("; ")
-            let args = cmd.components(separatedBy: " ")
-            let type: Types
-            let name: String
-            let execution: String
-            
-            if args.count < 2 {
-                breakWith(message: "Some arguments are missing, please try again.")
-                return
-            }
-            
-            type = args[0] == "dir" ? .dir : args[0] == "cmd" ? .cmd : .undefined
-            name = args[1]
-            execution = type == .dir ? "" : cmdCopy.cut(start: "\"", end: "\"") ?? ""
-            
-            if type == .undefined {
-                breakWith(message: "Please enter a vailid type: `\(args[0])`")
-                return
-            }
-            
-            if type == .cmd && execution == "" {
-                breakWith(message: "Please enter a vailid execution.")
-                return
-            }
-                        
-            addChildren(to: targetDirUid, name: name, type: type, execution: execution)
         case var cmd where cmd.starts(with: "!path"): // !path [name]
             cmd.removeFirst(6)
             print(getPath(from: cmd))
@@ -343,7 +374,7 @@ class DatabaseManager {
             runMyTerminal()
         }
     }
-    
+        
     // prints the givenn Message and run's runMyTerminal()
     func breakWith(message: String) {
         print(message)
@@ -371,19 +402,23 @@ class DatabaseManager {
     }
 
     // adds an children to current or wished directory
-    func addChildren(to dir: Int = 0,name: String, type: Types, execution: String) {
+    func addChildren(to dir: Int = 0, name: String, type: Types, execution: String) {
         let targetDir = dir == 0 ? currentUid : dir
+        print(execution.replacedAll(chars: "�", with: ""))
         if type == .cmd {
             executeQuery(
-                "INSERT INTO hierarchy (name, parent, favorite, type, execution) VALUES ('\(name)',\(targetDir),0,'command','\(execution)')"
+                "INSERT INTO hierarchy (name, parent, favorite, type, execution) VALUES ('\(name)',\(targetDir),0,'command','\(execution.replacedAll(chars: "�", with: ""))')",
+                succes: "Command successfully added"
             )
         } else {
             executeQuery(
-                "INSERT INTO hierarchy (name, parent, favorite, type) VALUES ('\(name)',\(targetDir),0,'directory')"
+                "INSERT INTO hierarchy (name, parent, favorite, type) VALUES ('\(name)',\(targetDir),0,'directory')",
+                succes: "Directory successfully added"
             )
         }
     }
 
+    // prints the children from the given dir or the current
     func printChildrenFromDir(_ name: String = "") {
         let dirUid: Int
         if name != "" {
