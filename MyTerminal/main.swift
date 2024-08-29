@@ -15,12 +15,12 @@ enum Types {
 }
 
 extension String {
-    //! NOT WORKING
+    /// Replaces all occurrences of specified characters with a given string.
     mutating func replaceAll(chars: String, with: String) {
         self = self.replacedAll(chars: chars, with: with)
     }
-    
-    //! NOT WORKING
+
+    /// Returns a new string with all occurrences of specified characters replaced with a given string.
     func replacedAll(chars: String, with: String) -> String {
         var filterd = self
         for char in chars {
@@ -30,29 +30,33 @@ extension String {
                 containsChar = filterd.contains(char)
             }
         }
-        return self
+        return filterd
     }
-    
+
+    /// Removes leading and trailing whitespace and newlines from the string.
     mutating func trim() {
         self = self.trimed()
     }
-    
+
+    /// Returns a new string with leading and trailing whitespace and newlines removed.
     func trimed() -> String {
         self.trimmingCharacters(in: .whitespacesAndNewlines)
     }
-    
+
+    /// Removes characters from the beginning of the string up to and including the specified substring.
     mutating func removedUntil(_ str: String) {
         self = self.removeUntil(str)
     }
-    
+
+    /// Returns a new string with characters removed from the beginning up to and including the specified substring.
     func removeUntil(_ str: String) -> String {
         var components = [Character]()
-        
+
         for char in self { components.append(char) }
-        
+
         var current = ""
         var result = ""
-        
+
         for char in components {
             if !current.contains(str) {
                 current.append(char)
@@ -60,17 +64,19 @@ extension String {
                 break
             }
         }
-        
+
         for _ in 1...current.count { components.removeFirst() }
         for char in components { result.append(char) }
-        
+
         return result
     }
-    
+
+    /// Replaces the first occurrence of a specified pattern with a replacement string.
     mutating func replaceFirstExpression(of pattern: String, with replacement: String) {
         self = self.replacedFirstExpression(of: pattern, with: replacement)
     }
-    
+
+    /// Returns a new string with the first occurrence of a specified pattern replaced with a replacement string.
     func replacedFirstExpression(
         of pattern: String,
         with replacement: Any
@@ -83,6 +89,7 @@ extension String {
         }
     }
 
+    /// Extracts a substring between specified start and end strings.
     func cut(start: String, end: String, ceepStartEnd: Bool = false) -> String? {
         var startComponents = [Character]()
         var endComponents = [Character]()
@@ -123,42 +130,63 @@ extension String {
                 }
             }
         }
-        
+
         if result.isEmpty { return nil }
-        
-        if ceepStartEnd { return result }
-        else { return result.replacing(start, with: "").replacing(end, with: "") }
+
+        if ceepStartEnd { return result } else { return result.replacing(start, with: "").replacing(end, with: "") }
     }
 }
 
 extension Collection {
+    /// Checkst if the collection is not Empty
     func isNotEmpty() -> Bool { !self.isEmpty }
 }
 
+/// Class to store SQL rows
 class HierarchyRow {
-    let name: String
-    let deleted: String
-    let parent: Int
-    let type: String
-    let favorite: Int
-    let execution: String
-    let uid: Int
-    
-    init(name: String, deleted: String, parent: Int, type: String, favorite: Int, execution: String, uid: Int) {
+    let name: String?
+    let deleted: String?
+    let type: String?
+    let execution: String?
+    let parentName: String?
+    let uid: Int?
+    let favorite: Int?
+    let parent: Int?
+
+    init(
+        name: String?,
+        deleted: String?,
+        type: String?,
+        execution: String?,
+        parentName: String?,
+        uid: Int?,
+        favorite: Int?,
+        parent: Int?
+    ) {
         self.name = name
         self.deleted = deleted
-        self.parent = parent
         self.type = type
-        self.favorite = favorite
         self.execution = execution
+        self.parentName = parentName
         self.uid = uid
+        self.favorite = favorite
+        self.parent = parent
     }
-    
+
     func printMs() {
+        let fav = favorite == 1 ? "\"" : ""
         if type == "command" {
-            print("\(favorite == 1 ? "*" : "")\(uid): \(name) - '\(execution)'")
+            if uid != nil || name != nil {
+                print("\(uid ?? 0): \(fav)\(name ?? "UNKNOWN")\(fav) - '\(execution ?? "UNKNOWN")'")
+            } else {
+                print("ERROR: Something went wrong loading this command")
+            }
         } else {
-            print("\(favorite == 1 ? "*" : "")\(uid): \(name) >")
+            if uid != nil || name != nil {
+                print("\(uid ?? 0): \(fav)\(name ?? "UNKNOWN")\(fav) >")
+            } else {
+                print("ERROR: Something went wrong loading this directory")
+            }
         }
     }
 }
@@ -168,10 +196,11 @@ class DatabaseManager {
     private let dbPath: String
     var currentDirectory = "~"
     var currentParentUid: Int {
-         executeSelectHierarchy(query: "SELECT parent FROM hierarchy WHERE name = ?", args: [currentDirectory])?[0].parent ?? 0
+        executeSelectHierarchy(query: "SELECT parent FROM hierarchy WHERE name = ?", args: [currentDirectory])?[0]
+            .parent ?? 0
     }
     var currentUid: Int {
-         executeSelectHierarchy(query: "SELECT uid FROM hierarchy WHERE name = ?", args: [currentDirectory])?[0].uid ?? 0
+        executeSelectHierarchy(query: "SELECT uid FROM hierarchy WHERE name = ?", args: [currentDirectory])?[0].uid ?? 0
     }
     var currentPath: String { getPath() }
 
@@ -190,40 +219,6 @@ class DatabaseManager {
     func close() {
         sqlite3_close(db)
         print("Closed MyTerminal!")
-    }
-
-    func executeSelectQuery(_ query: String, args: [Any] = []) -> [[String: Any]]? {
-        var finalQuery = query
-        if args.isNotEmpty() {
-            for arg in args {
-                finalQuery = finalQuery.replacedFirstExpression(of: "?", with: "'\(arg)'")
-            }
-        }
-
-        var statement: OpaquePointer?
-        var results: [[String: Any]] = []
-
-        guard sqlite3_prepare_v2(db, finalQuery, -1, &statement, nil) == SQLITE_OK else {
-            print("Error preparing query: \(String(cString: sqlite3_errmsg(db)))")
-            return nil
-        }
-
-        defer {
-            sqlite3_finalize(statement)
-        }
-
-        while sqlite3_step(statement) == SQLITE_ROW {
-            var row: [String: Any] = [:]
-            for i in 0..<sqlite3_column_count(statement) {
-                let columnName = String(cString: sqlite3_column_name(statement, i))
-                if let value = getColumnValue(statement, index: i) {
-                    row[columnName] = value
-                }
-            }
-            results.append(row)
-        }
-
-        return results
     }
 
     func executeSelectHierarchy(query: String, args: [Any] = []) -> [HierarchyRow]? {
@@ -247,7 +242,10 @@ class DatabaseManager {
         }
 
         while sqlite3_step(statement) == SQLITE_ROW {
-            var row: [String: Any] = ["name": "", "deleted": "", "parent": 0, "type": "", "favorite": 0, "execution": "", "uid": 0]
+            var row: [String: Any] = [
+                "name": "", "deleted": "", "parent": 0, "type": "", "favorite": 0, "execution": "", "uid": 0,
+                "parentName": "",
+            ]
             for i in 0..<sqlite3_column_count(statement) {
                 let columnName = String(cString: sqlite3_column_name(statement, i))
                 if let value = getColumnValue(statement, index: i) {
@@ -257,13 +255,14 @@ class DatabaseManager {
             results
                 .append(
                     HierarchyRow(
-                        name: "\(row["name"] ?? "NULL")",
-                        deleted: "\(row["deleted"] ?? "NULL")",
-                        parent: Int("\(row["parent"] ?? "0")") ?? 0,
-                        type: "\(row["type"] ?? "NULL")",
-                        favorite: Int("\(row["favorite"] ?? "0")") ?? 0,
-                        execution: "\(row["execution"] ?? "NULL")",
-                        uid: Int("\(row["uid"] ?? "0")") ?? 0
+                        name: row["name"] as? String,
+                        deleted: row["deleted"] as? String,
+                        type: row["type"] as? String,
+                        execution: row["execution"] as? String,
+                        parentName: row["parent_name"] as? String,
+                        uid: row["uid"] as? Int,
+                        favorite: row["favorite"] as? Int,
+                        parent: row["parent"] as? Int
                     )
                 )
         }
@@ -306,28 +305,32 @@ class DatabaseManager {
         sqlite3_finalize(statement)
     }
 
+    /// Handles the execution of commands
     func execute(command: String) {
         switch command {
         case "!close":
             close()
-        case var cmd where cmd.starts(with: "!add"): // !add (to:[wished dir name];) [type] [name] "[execution]" (execution is only requierd if you create a cmd)
+        case var cmd where cmd.starts(with: "!add"):  // !add (to:[wished dir name];) [type] [name] "[execution]" (execution is only requierd if you create a cmd)
             do {
                 if cmd.count == 4 {
-                    breakWith(message: "To add an element to the current or wished `Directory` run: \n!add (to:[wished dir name];) [dir|cmd] [name] \"[execution]\" (execution is only for commands).")
+                    breakWith(
+                        message:
+                            "To add an element to the current or wished `Directory` run: \n!add (to:[wished dir name];) [dir|cmd] [name] \"[execution]\" (execution is only for commands)."
+                    )
                     return
                 }
-                
+
                 cmd.removeFirst(5)
                 let cmdCopy = cmd
                 let targetDirUid: Int
-                
+
                 if let dirName = cmd.cut(start: "to:", end: ";") {
                     cmd.removeFirst(4 + dirName.count)
                     if let response = executeSelectHierarchy(
                         query: "SELECT uid FROM hierarchy WHERE name = ?",
                         args: [dirName]
                     ) {
-                        targetDirUid = response[0].uid
+                        targetDirUid = response[0].uid ?? currentUid
                     } else {
                         breakWith(message: "Please enter a vailid `Target Directory Name`.")
                         return
@@ -335,53 +338,58 @@ class DatabaseManager {
                 } else {
                     targetDirUid = currentUid
                 }
-                
+
                 let args = cmd.trimed().components(separatedBy: " ")
                 let type: Types
                 let name: String
                 let execution: String
-                
+
                 if args.count < 2 {
                     breakWith(message: "Some arguments are missing, please try again.")
                     return
                 }
-                
+
                 type = args[0] == "dir" ? .dir : args[0] == "cmd" ? .cmd : .undefined
                 name = args[1]
                 execution = type == .dir ? "" : cmdCopy.cut(start: "\"", end: "\"") ?? ""
-                
+
                 if type == .undefined {
                     breakWith(message: "Please enter a vailid type: `\(args[0])`")
                     return
                 }
-                
+
                 if type == .cmd && execution == "" {
                     breakWith(message: "Please enter a vailid execution.")
                     return
                 }
-                
+
                 addChildren(to: targetDirUid, name: name, type: type, execution: execution)
                 runMyTerminal()
             }
-        case var cmd where cmd.starts(with: "!path"): // !path [name]
-            cmd.removeFirst(6)
-            print(getPath(from: cmd))
+        case var cmd where cmd.starts(with: "!path"):  // !path [name]
+            let path: String
+            if cmd.trimed().count == 5 {
+                path = getPath()
+            } else {
+                cmd.removeFirst(5)
+                path = getPath(from: cmd.trimed())
+            }
+            breakWith(message: path)
         case var cmd where cmd.starts(with: "!ls"):
             cmd.removeFirst(4)
             printChildrenFromDir()
         default:
-            print("This command is not defined: \(command)")
-            runMyTerminal()
+            breakWith(message: "This command is not defined: \(command)")
         }
     }
-        
-    // prints the givenn Message and run's runMyTerminal()
+
+    /// Prints the givenn Message and run's runMyTerminal()
     func breakWith(message: String) {
         print(message)
         runMyTerminal()
     }
-    
-    // get's the path to the given element or of the current dir
+
+    /// get's the path to the given element or of the current dir
     func getPath(from element: String = "") -> String {
         var currentDirName = element == "" ? currentDirectory : element
         var path = [currentDirName]
@@ -390,8 +398,8 @@ class DatabaseManager {
             let query =
                 "SELECT parent.name AS parentName FROM hierarchy current LEFT JOIN hierarchy parent ON parent.uid = current.parent WHERE current.name = ?"
 
-            if let response = executeSelectQuery(query, args: [currentDirName]) {
-                let name = response[0]["parentName"] as? String ?? ""
+            if let response = executeSelectHierarchy(query: query, args: [currentDirName]) {
+                let name = response[0].parentName ?? ""
 
                 path.insert(name, at: 0)
                 currentDirName = name
@@ -401,7 +409,7 @@ class DatabaseManager {
         return path.joined(separator: "/")
     }
 
-    // adds an children to current or wished directory
+    /// adds an children to current or wished directory
     func addChildren(to dir: Int = 0, name: String, type: Types, execution: String) {
         let targetDir = dir == 0 ? currentUid : dir
         print(execution.replacedAll(chars: "�", with: ""))
@@ -418,15 +426,16 @@ class DatabaseManager {
         }
     }
 
-    // prints the children from the given dir or the current
+    /// prints the children from the given dir or the current
     func printChildrenFromDir(_ name: String = "") {
         let dirUid: Int
         if name != "" {
-            dirUid = executeSelectHierarchy(query: "SELECT uid FROM hierarchy WHERE name = ?", args: [name])?[0].uid ?? 0
+            dirUid =
+                executeSelectHierarchy(query: "SELECT uid FROM hierarchy WHERE name = ?", args: [name])?[0].uid ?? 0
         } else {
             dirUid = currentUid
         }
-        
+
         if let children = executeSelectHierarchy(query: "SELECT * FROM hierarchy WHERE parent = ?", args: [dirUid]) {
             for child in children {
                 child.printMs()
@@ -434,32 +443,32 @@ class DatabaseManager {
         }
     }
 
-    // cd
+    /// cd
     func openDir(_ dir: Int) {
 
     }
 
-    // delete item by id or name
+    /// delete item by id or name
     func deleteChildren() {
 
     }
 
-    // restores the last deleted Element
+    /// restores the last deleted Element
     func restoreLastElement() {
 
     }
 
-    // basicly cd ..
+    /// basicly cd ..
     func goBack() {
 
     }
 
-    // prints a list of all items in the current directory
+    /// prints a list of all items in the current directory
     func listCurrentDir() {
 
     }
 
-    // gets an Item by the id of it...
+    /// gets an Item by the id of it...
     func getItem() {
 
     }
@@ -483,9 +492,10 @@ func runMyTerminal() {
     }
 }
 
-print("""
-Welcome to MyTerminal
-if you need help type `!help`
-""")
+print(
+    """
+    Welcome to MyTerminal
+    if you need help type `!help`
+    """)
 
 runMyTerminal()
