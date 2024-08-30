@@ -259,7 +259,7 @@ class DatabaseManager {
                         deleted: row["deleted"] as? String,
                         type: row["type"] as? String,
                         execution: row["execution"] as? String,
-                        parentName: row["parent_name"] as? String,
+                        parentName: row["parentName"] as? String,
                         uid: row["uid"] as? Int,
                         favorite: row["favorite"] as? Int,
                         parent: row["parent"] as? Int
@@ -376,7 +376,7 @@ class DatabaseManager {
             }
             breakWith(message: path)
         case var cmd where cmd.starts(with: "!ls"):
-            cmd.removeFirst(4)
+            cmd.removeFirst(3)
             printChildrenFromDir()
         default:
             breakWith(message: "This command is not defined: \(command)")
@@ -393,17 +393,19 @@ class DatabaseManager {
     func getPath(from element: String = "") -> String {
         var currentDirName = element == "" ? currentDirectory : element
         var path = [currentDirName]
+        var error = false
 
-        while currentDirName != "~" {
-            let query =
-                "SELECT parent.name AS parentName FROM hierarchy current LEFT JOIN hierarchy parent ON parent.uid = current.parent WHERE current.name = ?"
-
-            if let response = executeSelectHierarchy(query: query, args: [currentDirName]) {
-                let name = response[0].parentName ?? ""
-
-                path.insert(name, at: 0)
-                currentDirName = name
-            }
+        while currentDirName != "~" && !error {
+            let parentName: String = executeSelectHierarchy(query: "SELECT parent.name AS parentName FROM hierarchy current LEFT JOIN hierarchy parent ON parent.uid = current.parent WHERE current.name = ?", args: [currentDirName])?.first?.parentName ?? "UNKNOWN"
+            
+            if parentName == "UNKNOWN" { error = true }
+            
+            path.insert(parentName, at: 0)
+            currentDirName = parentName
+        }
+        
+        if error {
+            return "Path not found"
         }
 
         return path.joined(separator: "/")
