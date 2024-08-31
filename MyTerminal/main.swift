@@ -15,6 +15,24 @@ enum Types {
 }
 
 extension String {
+    func containsChars(_ chars: String = "") -> [Character]? {
+        let charackters = chars == "" ? DatabaseManager.forbiddenCharacters.joined(separator: "") : chars
+        var characktersIncluded = ""
+        var result: [Character] = []
+        
+        for char in charackters {
+            let str = "\(char)"
+            let contains = str.contains(where: self.contains)
+            characktersIncluded += contains ? str : ""
+        }
+        
+        for char in characktersIncluded {
+            result.append(char as Character)
+        }
+        
+        return result == [] ? nil : result
+    }
+    
     /// Replaces all occurrences of specified characters with a given string.
     mutating func replaceAll(chars: String, with: String) {
         self = self.replacedAll(chars: chars, with: with)
@@ -194,6 +212,8 @@ class HierarchyRow {
 class DatabaseManager {
     private var db: OpaquePointer?  // It's a type that is used for C API requests… so swift doesn't know the exact type… or something like that…
     private let dbPath: String
+    static let forbiddenCharacters: [String] = ["/", ":"]
+    let homeDirectory = "~"
     var currentDirectory = "~"
     var currentParentUid: Int {
         executeSelectHierarchy(query: "SELECT parent FROM hierarchy WHERE name = ?", args: [currentDirectory])?[0]
@@ -363,18 +383,33 @@ class DatabaseManager {
                     return
                 }
 
-                addChildren(to: targetDirUid, name: name, type: type, execution: execution)
-                runMyTerminal()
+                let success = addChildren(to: targetDirUid, name: name, type: type, execution: execution)
+                if success {
+                    runMyTerminal()
+                }
             }
         case var cmd where cmd.starts(with: "!path"):  // !path [name]
-            let path: String
-            if cmd.trimed().count == 5 {
-                path = getPath()
-            } else {
-                cmd.removeFirst(5)
-                path = getPath(from: cmd.trimed())
+            do {
+                let path: String
+                if cmd.trimed().count == 5 {
+                    path = getPath()
+                } else {
+                    cmd.removeFirst(5)
+                    path = getPath(from: cmd.trimed())
+                }
+                breakWith(message: path)
             }
-            breakWith(message: path)
+        case var path where path.starts(with: "!cd"):
+            path.removeFirst(3)
+            path.trim()
+            
+            if path == homeDirectory {
+                currentDirectory = homeDirectory
+            } else {
+                changeDirectory(path: path)
+            }
+            
+            runMyTerminal()
         case var cmd where cmd.starts(with: "!ls"):
             cmd.removeFirst(3)
             printChildrenFromDir()
@@ -412,8 +447,14 @@ class DatabaseManager {
     }
 
     /// adds an children to current or wished directory
-    func addChildren(to dir: Int = 0, name: String, type: Types, execution: String) {
+    func addChildren(to dir: Int = 0, name: String, type: Types, execution: String) -> Bool {
         let targetDir = dir == 0 ? currentUid : dir
+        
+        if let chars = name.containsChars() {
+            breakWith(message: "Please don't use thes charackters: \"\(chars.map(\.description).joined(separator: ", "))\"")
+            return false
+        }
+        
         print(execution.replacedAll(chars: "�", with: ""))
         if type == .cmd {
             executeQuery(
@@ -426,6 +467,8 @@ class DatabaseManager {
                 succes: "Directory successfully added"
             )
         }
+        
+        return true
     }
 
     /// prints the children from the given dir or the current
@@ -445,9 +488,16 @@ class DatabaseManager {
         }
     }
 
-    /// cd
-    func openDir(_ dir: Int) {
-
+    /// goes to the give path
+    func changeDirectory(path: String) {
+        var components = path.split(separator: "/")
+        let first = components.removeFirst()
+        
+        if first == ".." {
+            
+        }
+        
+        print(components)
     }
 
     /// delete item by id or name
